@@ -47,21 +47,6 @@ StratOS-RL is specifically engineered to be **insolvable by simple reactive agen
 2.  **Human Capital Latency**: Hiring isn't instant. New employees enter a **3-step Training Queue**, creating a "Burn-before-Value" period that tests long-horizon liquidity management.
 3.  **The Credit Squeeze Paradox**: High-growth strategies often lead to liquidity crises. The environment implements a "Lender Trust" metric that non-linearly scales interest rates and bankruptcy risk based on historical burn rates.
 
-### The Economic Flywheel
-```mermaid
-graph TD
-    A[Capital Allocation] -->|Marketing| B(Leads Queue)
-    A -->|R&D| C(Product Quality)
-    A -->|Infrastructure| D(Capacity)
-    B -->|Conversion| E[Active Customers]
-    C -->|Retention| E
-    D -->|Latency| F(User Satisfaction)
-    F -->|Churn| E
-    E -->|Revenue| G[MRR]
-    G -->|Income| H[Cash Balance]
-    H -->|Reinvest| A
-```
-
 ---
 
 ## 🛠️ Installation & Setup
