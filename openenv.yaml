@@ -1,14 +1,32 @@
-version: "0.1.0"
-name: "founder-gym"
-description: "SaaS CEO Simulator"
-entry_point: "server.app"
+name: founder-gym
+version: "1.0.0"
+description: >
+  SaaS CEO Simulator. Agent manages capital allocation, marketing,
+  infrastructure, and hiring to reach $10k MRR. Grounded in economic
+  simulations of churn, price elasticity, and debt dynamics.
+tags:
+  - openenv
+  - finance
+  - SaaS
+  - simulation
+  - optimization
 tasks:
-  - id: "task-1-growth"
+  - id: task-1-growth
     name: "Bootstrapping 101"
     difficulty: "easy"
-  - id: "task-2-viral"
+    max_steps: 25
+    reward_range: [0.0, 1.0]
+  - id: task-2-viral
     name: "The Viral Crash"
     difficulty: "medium"
-  - id: "task-3-price"
+    max_steps: 20
+    reward_range: [0.0, 1.0]
+  - id: task-3-price
     name: "The Efficiency War"
     difficulty: "hard"
+    max_steps: 20
+    reward_range: [0.0, 1.0]
+observation_space: founder_gym.models.FounderObservation
+action_space: founder_gym.models.FounderAction
+# Note: StepResult is the container for rewards and info
+reward_model: founder_gym.models.StepResult
