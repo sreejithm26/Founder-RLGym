@@ -1,0 +1,109 @@
+"""
+Founder Gym baseline inference script.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import os
+from typing import Any, Dict, List, Optional
+
+from openai import AsyncOpenAI
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+from founder_gym import FounderAction, FounderGymEnv
+
+logging.basicConfig(level=logging.WARNING)
+
+API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY") or "no-key"
+API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
+MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
+
+TASKS = ["task-1-growth", "task-2-viral", "task-3-price"]
+MAX_STEPS = {"task-1-growth": 25, "task-2-viral": 20, "task-3-price": 20}
+SUCCESS_SCORE_THRESHOLD = 0.5
+
+
+def log_start(task: str, env: str, model: str) -> None:
+    print(f"[START] task={task} env={env} model={model}", flush=True)
+
+
+def log_step(step: int, action: str, reward: float, done: bool, error: Any) -> None:
+    print(f"[STEP] step={step} action={action} reward={reward:.2f} done={str(done).lower()} error={error or 'null'}", flush=True)
+
+
+def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
+
+
+_SYSTEM_PROMPT = """You are a SaaS CEO.
+Receive dashboard JSON and respond with ONLY a valid JSON FounderAction object.
+
+FounderAction fields:
+  action_type: "ALLOCATE"
+  price: float (monthly sub price)
+  a_marketing: float (ads spend)
+  a_product: float (R&D)
+  a_infra: float (AWS capacity)
+  a_hiring: float (recruiting)
+  a_debt_repayment: float
+  reasoning: str
+
+Reach $10k MRR without running out of cash.
+"""
+
+async def get_llm_action(client: AsyncOpenAI, obs_json: str, conversation: List[Dict[str, str]]) -> FounderAction:
+    conversation.append({"role": "user", "content": obs_json})
+    response = await client.chat.completions.create(
+        model=MODEL_NAME,
+        messages=[{"role": "system", "content": _SYSTEM_PROMPT}] + conversation,
+        max_tokens=512,
+        temperature=0.2,
+    )
+    content = response.choices[0].message.content or "{}"
+    conversation.append({"role": "assistant", "content": content})
+    
+    content = content.strip().replace("```json", "").replace("```", "").strip()
+    return FounderAction.model_validate(json.loads(content))
+
+
+async def run_episode(env: FounderGymEnv, client: AsyncOpenAI, task_id: str) -> None:
+    log_start(task=task_id, env="founder-gym", model=MODEL_NAME)
+    rewards: List[float] = []
+    steps = 0
+    max_steps = MAX_STEPS[task_id]
+    conversation: List[Dict[str, str]] = []
+    
+    try:
+        result = await env.reset(task_id=task_id)
+        while not result.done and steps < max_steps:
+            steps += 1
+            obs_json = json.dumps(result.observation.model_dump(), indent=2)
+            try:
+                action = await get_llm_action(client, obs_json, conversation)
+            except Exception as e:
+                action = FounderAction(reasoning=f"Error: {e}")
+            
+            result = await env.step(action)
+            rewards.append(result.reward)
+            log_step(steps, action.model_dump_json(), result.reward, result.done, None)
+            
+    finally:
+        score = sum(rewards) / max_steps
+        log_end(score >= SUCCESS_SCORE_THRESHOLD, steps, score, rewards)
+
+
+async def main() -> None:
+    client = AsyncOpenAI(api_key=API_KEY, base_url=API_BASE_URL)
+    env = FounderGymEnv.in_process()
+    for task_id in TASKS:
+        await run_episode(env, client, task_id)
+
+if __name__ == "__main__":
+    asyncio.run(main())
