@@ -1,13 +1,13 @@
-from founder_gym.tasks.base import BaseTask
-from founder_gym.state import SaaSState
-from founder_gym.models import FounderObservation
+from stratos_gym.tasks.base import BaseTask
+from stratos_gym.state import SaaSState
+from stratos_gym.models import StratosObservation
 
 class PriceTask(BaseTask):
     """Hard mode: The Efficiency War."""
     max_steps = 20
     name = "task-3-price"
 
-    def reset(self, seed: int = 0) -> FounderObservation:
+    def reset(self, seed: int = 0) -> StratosObservation:
         self.state = SaaSState(
             cash=300.0, # Very low
             active_basic=25,

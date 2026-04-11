@@ -1,4 +1,4 @@
-name: founder-gym
+name: stratos-rl
 version: "1.0.0"
 description: >
   SaaS CEO Simulator. Agent manages capital allocation, marketing,
@@ -26,7 +26,7 @@ tasks:
     difficulty: "hard"
     max_steps: 20
     reward_range: [0.0, 1.0]
-observation_space: founder_gym.models.FounderObservation
-action_space: founder_gym.models.FounderAction
+observation_space: stratos_gym.models.StratosObservation
+action_space: stratos_gym.models.StratosAction
 # Note: StepResult is the container for rewards and info
-reward_model: founder_gym.models.StepResult
+reward_model: stratos_gym.models.StepResult

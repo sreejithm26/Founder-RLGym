@@ -1,5 +1,5 @@
 """
-FounderGymEnv — the top-level OpenEnv environment class.
+StratosEnv — the top-level OpenEnv environment class.
 """
 
 from __future__ import annotations
@@ -13,16 +13,16 @@ from typing import Any, Dict, Optional
 
 import httpx
 
-from founder_gym.graders import FounderGrader
-from founder_gym.models import FounderAction, ResetRequest, StateResult, StepResult
-from founder_gym.tasks import TASK_REGISTRY, BaseTask
+from stratos_gym.graders import StratosGrader
+from stratos_gym.models import StratosAction, ResetRequest, StateResult, StepResult
+from stratos_gym.tasks import TASK_REGISTRY, BaseTask
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_PORT = 8000
 _HEALTH_TIMEOUT = 30
 
-_GRADER = FounderGrader()
+_GRADER = StratosGrader()
 
 
 class _InProcessBackend:
@@ -38,7 +38,7 @@ class _InProcessBackend:
         observation = self._task.reset(seed=seed)
         return StepResult(observation=observation, reward=0.0, done=False, info={})
 
-    async def step(self, action: FounderAction) -> StepResult:
+    async def step(self, action: StratosAction) -> StepResult:
         if self._task is None:
             raise RuntimeError("Reset first.")
         
@@ -51,7 +51,7 @@ class _InProcessBackend:
             info=grade.get("info", {}),
         )
 
-    def _grade(self, action: FounderAction) -> Dict[str, Any]:
+    def _grade(self, action: StratosAction) -> Dict[str, Any]:
         assert self._task is not None and self._task.state is not None
         return _GRADER.grade(action, self._task.state, self._task.ground_truth, self._task.state.step_number)
 
@@ -63,12 +63,12 @@ class _InProcessBackend:
             task_id=self._task_id,
             step_number=snap.step_number,
             episode_seed=snap.episode_seed,
-            founder_state=snap.to_dict(),
+            stratos_state=snap.to_dict(),
             is_done=snap.is_done,
         )
 
 
-class FounderGymEnv:
+class StratosEnv:
     def __init__(self, base_url: Optional[str] = None, _in_process: bool = False) -> None:
         self._base_url = base_url
         self._in_process = _in_process
@@ -78,13 +78,13 @@ class FounderGymEnv:
         self._task_id: str = "task-1-growth"
 
     @classmethod
-    def in_process(cls) -> FounderGymEnv:
+    def in_process(cls) -> StratosEnv:
         env = cls(_in_process=True)
         env._local = _InProcessBackend()
         return env
 
     @classmethod
-    async def from_docker_image(cls, image_name: str) -> FounderGymEnv:
+    async def from_docker_image(cls, image_name: str) -> StratosEnv:
         port = _DEFAULT_PORT
         result = subprocess.run(
             ["docker", "run", "-d", "--rm", "-p", f"{port}:{port}", image_name],
@@ -116,7 +116,7 @@ class FounderGymEnv:
         r.raise_for_status()
         return StepResult.model_validate(r.json())
 
-    async def step(self, action: FounderAction) -> StepResult:
+    async def step(self, action: StratosAction) -> StepResult:
         if self._in_process:
             assert self._local is not None
             result = await self._local.step(action)

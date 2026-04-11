@@ -1,10 +1,10 @@
 """
-Pydantic v2 models for Founder Gym (SaaS CEO Simulator).
+Pydantic v2 models for StratOS-RL (SaaS CEO Simulator).
 
 All API boundary types live here:
-  - FounderObservation — what the agent sees each step
-  - FounderAction      — what the agent submits each step
-  - FounderReward      — reward breakdown returned by graders
+  - StratosObservation — what the agent sees each step
+  - StratosAction      — what the agent submits each step
+  - StratosReward      — reward breakdown returned by graders
   - StepResult         — envelope returned by /step and /reset
   - StateResult        — envelope returned by /state (read-only)
   - ResetRequest       — optional body for POST /reset
@@ -25,7 +25,7 @@ class ActionType(str, Enum):
     ALLOCATE_ALT = "allocate"
 
 
-class FounderObservation(BaseModel):
+class StratosObservation(BaseModel):
     """Full observation delivered to the agent at each step."""
 
     model_config = ConfigDict(
@@ -50,7 +50,7 @@ class FounderObservation(BaseModel):
     step_number: int
 
 
-class FounderAction(BaseModel):
+class StratosAction(BaseModel):
     """Action submitted by the agent each step."""
 
     model_config = ConfigDict(
@@ -80,7 +80,7 @@ class FounderAction(BaseModel):
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
 
 
-class FounderReward(BaseModel):
+class StratosReward(BaseModel):
     """Reward breakdown returned by a grader."""
 
     value: float = Field(description="Scalar reward in [0.0, 1.0]")
@@ -91,7 +91,7 @@ class FounderReward(BaseModel):
     info: Dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def clamp_value(self) -> "FounderReward":
+    def clamp_value(self) -> "StratosReward":
         """Hard-clamp reward to [0, 1] to satisfy OpenEnv contract."""
         self.value = float(min(1.0, max(0.0, self.value)))
         return self
@@ -100,7 +100,7 @@ class FounderReward(BaseModel):
 class StepResult(BaseModel):
     """Envelope returned by POST /reset and POST /step."""
 
-    observation: FounderObservation
+    observation: StratosObservation
     reward: float = 0.0
     done: bool = False
     info: Dict[str, Any] = Field(default_factory=dict)
@@ -112,7 +112,7 @@ class StateResult(BaseModel):
     task_id: str
     step_number: int
     episode_seed: int
-    founder_state: Dict[str, Any]  # serialized SaaSState
+    stratos_state: Dict[str, Any]  # serialized SaaSState
     is_done: bool
 
 

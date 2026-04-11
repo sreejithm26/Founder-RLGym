@@ -3,12 +3,12 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Tuple
 
-from founder_gym.models import FounderAction, FounderObservation
-from founder_gym.state import SaaSState
+from stratos_gym.models import StratosAction, StratosObservation
+from stratos_gym.state import SaaSState
 
 
 class BaseTask(ABC):
-    """Abstract base for Founder Gym episode tasks."""
+    """Abstract base for StratOS-RL episode tasks."""
 
     max_steps: int = 25
     name: str = "base"
@@ -17,11 +17,11 @@ class BaseTask(ABC):
         self.state: SaaSState | None = None
 
     @abstractmethod
-    def reset(self, seed: int = 0) -> FounderObservation:
+    def reset(self, seed: int = 0) -> StratosObservation:
         """Initialise a new episode."""
         ...
 
-    def step(self, action: FounderAction) -> Tuple[FounderObservation, bool]:
+    def step(self, action: StratosAction) -> Tuple[StratosObservation, bool]:
         """Apply action, advance simulation."""
         self._assert_ready()
         assert self.state is not None

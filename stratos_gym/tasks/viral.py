@@ -1,13 +1,13 @@
-from founder_gym.tasks.base import BaseTask
-from founder_gym.state import SaaSState
-from founder_gym.models import FounderObservation
+from stratos_gym.tasks.base import BaseTask
+from stratos_gym.state import SaaSState
+from stratos_gym.models import StratosObservation
 
 class ViralTask(BaseTask):
     """Medium mode: The Viral Crash."""
     max_steps = 20
     name = "task-2-viral"
 
-    def reset(self, seed: int = 0) -> FounderObservation:
+    def reset(self, seed: int = 0) -> StratosObservation:
         self.state = SaaSState(
             cash=3000.0,
             active_basic=100,

@@ -1,5 +1,5 @@
 """
-Founder Gym baseline inference script.
+StratOS-RL baseline inference script.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-from founder_gym import FounderAction, FounderGymEnv
+from stratos_gym import StratosAction, StratosEnv
 
 logging.basicConfig(level=logging.WARNING)
 
@@ -44,9 +44,9 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
 
 
 _SYSTEM_PROMPT = """You are a SaaS CEO.
-Receive dashboard JSON and respond with ONLY a valid JSON FounderAction object.
+Receive dashboard JSON and respond with ONLY a valid JSON StratosAction object.
 
-FounderAction fields:
+StratosAction fields:
   action_type: "ALLOCATE"
   price: float (monthly sub price)
   a_marketing: float (ads spend)
@@ -59,7 +59,7 @@ FounderAction fields:
 Reach $10k MRR without running out of cash.
 """
 
-async def get_llm_action(client: AsyncOpenAI, obs_json: str, conversation: List[Dict[str, str]]) -> FounderAction:
+async def get_llm_action(client: AsyncOpenAI, obs_json: str, conversation: List[Dict[str, str]]) -> StratosAction:
     conversation.append({"role": "user", "content": obs_json})
     response = await client.chat.completions.create(
         model=MODEL_NAME,
@@ -71,11 +71,11 @@ async def get_llm_action(client: AsyncOpenAI, obs_json: str, conversation: List[
     conversation.append({"role": "assistant", "content": content})
     
     content = content.strip().replace("```json", "").replace("```", "").strip()
-    return FounderAction.model_validate(json.loads(content))
+    return StratosAction.model_validate(json.loads(content))
 
 
-async def run_episode(env: FounderGymEnv, client: AsyncOpenAI, task_id: str) -> None:
-    log_start(task=task_id, env="founder-gym", model=MODEL_NAME)
+async def run_episode(env: StratosEnv, client: AsyncOpenAI, task_id: str) -> None:
+    log_start(task=task_id, env="stratos-rl", model=MODEL_NAME)
     rewards: List[float] = []
     steps = 0
     max_steps = MAX_STEPS[task_id]
@@ -89,7 +89,7 @@ async def run_episode(env: FounderGymEnv, client: AsyncOpenAI, task_id: str) -> 
             try:
                 action = await get_llm_action(client, obs_json, conversation)
             except Exception as e:
-                action = FounderAction(reasoning=f"Error: {e}")
+                action = StratosAction(reasoning=f"Error: {e}")
             
             result = await env.step(action)
             rewards.append(result.reward)
@@ -102,7 +102,7 @@ async def run_episode(env: FounderGymEnv, client: AsyncOpenAI, task_id: str) -> 
 
 async def main() -> None:
     client = AsyncOpenAI(api_key=HF_TOKEN, base_url=API_BASE_URL)
-    env = FounderGymEnv.in_process()
+    env = StratosEnv.in_process()
     for task_id in TASKS:
         await run_episode(env, client, task_id)
 

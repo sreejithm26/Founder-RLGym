@@ -1,5 +1,5 @@
 """
-FastAPI application — Founder Gym OpenEnv HTTP interface.
+FastAPI application — StratOS-RL OpenEnv HTTP interface.
 """
 
 from __future__ import annotations
@@ -10,13 +10,13 @@ from typing import Dict, List, Optional
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from founder_gym.env import FounderGymEnv
-from founder_gym.models import FounderAction, ResetRequest, StateResult, StepResult
-from founder_gym.tasks import TASK_REGISTRY
+from stratos_gym.env import StratosEnv
+from stratos_gym.models import StratosAction, ResetRequest, StateResult, StepResult
+from stratos_gym.tasks import TASK_REGISTRY
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Founder Gym", version="1.0.0")
+app = FastAPI(title="StratOS-RL", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -25,12 +25,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-_env: FounderGymEnv = FounderGymEnv.in_process()
+_env: StratosEnv = StratosEnv.in_process()
 
 
 @app.get("/")
 async def root() -> Dict[str, str]:
-    return {"status": "ok", "env": "founder-gym"}
+    return {"status": "ok", "env": "stratos-rl"}
 
 
 @app.get("/health")
@@ -58,7 +58,7 @@ async def reset_endpoint(
 
 
 @app.post("/step")
-async def step_endpoint(action: FounderAction) -> StepResult:
+async def step_endpoint(action: StratosAction) -> StepResult:
     try:
         return await _env.step(action)
     except RuntimeError as exc:

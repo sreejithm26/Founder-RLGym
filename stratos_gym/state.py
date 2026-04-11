@@ -1,5 +1,5 @@
 """
-SaaSState — the mutable episode state for Founder Gym.
+SaaSState — the mutable episode state for StratOS-RL.
 """
 
 from __future__ import annotations
@@ -11,13 +11,13 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from founder_gym.models import ActionType, FounderAction, FounderObservation
-from founder_gym.math.noise import NoiseGenerator
+from stratos_gym.models import ActionType, StratosAction, StratosObservation
+from stratos_gym.math.noise import NoiseGenerator
 
 
 @dataclass
 class SaaSState:
-    """Full mutable state for one Founder Gym episode."""
+    """Full mutable state for one StratOS-RL episode."""
 
     # Core Financials
     cash: float = 5000.0
@@ -83,8 +83,8 @@ class SaaSState:
         self.rng = np.random.default_rng(seed)
         self.noise = NoiseGenerator(seed)
 
-    def to_observation(self) -> FounderObservation:
-        """Build FounderObservation from current state."""
+    def to_observation(self) -> StratosObservation:
+        """Build StratosObservation from current state."""
         dashboard = {
             "bank": {"cash": round(self.cash, 2), "MRR": round(self.mrr, 2)},
             "aws": {
@@ -114,14 +114,14 @@ class SaaSState:
             },
         }
         
-        return FounderObservation(
+        return StratosObservation(
             dashboard=dashboard,
             logs=[],  # Populated by apply_action
             hint="",  # Populated by task logic
             step_number=self.step_number,
         )
 
-    def apply_action(self, action: FounderAction) -> List[str]:
+    def apply_action(self, action: StratosAction) -> List[str]:
         """Apply agent action and advance state using Saas CEO logic."""
         logs = []
         
@@ -255,6 +255,8 @@ class SaaSState:
             if new_ent > 0: logs.append(f"Closed {new_ent} Enterprise deals!")
             
         self.active_customers = self.active_basic + self.active_enterprise
+        self.market_share = min(1.0, self.active_customers / 5000.0) # Assume TAM is 5000 customers
+        
         if self.product_queue:
             self.product_quality += self.product_queue.pop(0)
             

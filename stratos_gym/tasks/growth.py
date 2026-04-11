@@ -1,13 +1,13 @@
-from founder_gym.tasks.base import BaseTask
-from founder_gym.state import SaaSState
-from founder_gym.models import FounderObservation
+from stratos_gym.tasks.base import BaseTask
+from stratos_gym.state import SaaSState
+from stratos_gym.models import StratosObservation
 
 class GrowthTask(BaseTask):
     """Easy mode: Bootstrapping 101."""
     max_steps = 25
     name = "task-1-growth"
 
-    def reset(self, seed: int = 0) -> FounderObservation:
+    def reset(self, seed: int = 0) -> StratosObservation:
         self.state = SaaSState(
             cash=5000.0,
             infrastructure_capacity=1000,
