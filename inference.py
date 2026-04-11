@@ -43,20 +43,28 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
     print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
 
 
-_SYSTEM_PROMPT = """You are a SaaS CEO.
-Receive dashboard JSON and respond with ONLY a valid JSON StratosAction object.
+_SYSTEM_PROMPT = """You are the CEO presiding over StratOS-RL, a high-fidelity SaaS simulation.
+Your goal is to scale MRR to $10,000 while maintaining solvency.
 
-StratosAction fields:
-  action_type: "ALLOCATE"
-  price: float (monthly sub price)
-  a_marketing: float (ads spend)
-  a_product: float (R&D)
-  a_infra: float (AWS capacity)
-  a_hiring: float (recruiting)
-  a_debt_repayment: float
-  reasoning: str
+SYSTEM DYNAMICS (Mental Model):
+1. THE RAMP-UP: New hires take 3 months (3 steps) to become productive. You pay salary immediately, but capacity increases later.
+2. MARKETING MOMENTUM: Spending on marketing builds 'Brand Momentum'. It provides a decay-based boost to leads over several months, not just one.
+3. QUALITY-CHURN LOOP: Product R&D is a long-term play. It lowers churn and improves conversion over time.
+4. DEBT & LENDER TRUST: You can go into negative cash (debt), but if you exceed your debt limit or burn too fast, 'Lender Trust' drops, interest rates spike, and you may face insolvency.
+5. INFRASTRUCTURE: Scaling infra has a cooldown. You cannot expand every single month.
 
-Reach $10k MRR without running out of cash.
+OUTPUT FORMAT:
+Respond with ONLY a valid JSON StratosAction:
+{
+  "action_type": "ALLOCATE",
+  "price": float,
+  "a_marketing": float,
+  "a_product": float,
+  "a_infra": float,
+  "a_hiring": float,
+  "a_debt_repayment": float,
+  "reasoning": "Quick strategic summary"
+}
 """
 
 async def get_llm_action(client: AsyncOpenAI, obs_json: str, conversation: List[Dict[str, str]]) -> StratosAction:

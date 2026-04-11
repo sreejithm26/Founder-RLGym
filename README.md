@@ -22,9 +22,9 @@ license: mit
 
 StratOS-RL is specifically engineered to be **insolvable by simple reactive agents**. It presents a "Hard AI" problem through three core mechanisms:
 
-1.  **Stochastic Lagged Queues**: Marketing spend and R&D don't yield results immediately. They enter a probabilistic queue, forcing the agent to model hidden states and anticipate rewards across multiple time steps.
-2.  **The Credit Squeeze Paradox**: High-growth strategies often lead to liquidity crises. The environment implements a "Lender Trust" metric that non-linearly scales interest rates and bankruptcy risk based on historical burn rates.
-3.  **Infrastructure Friction**: Scaling too fast destroys customer satisfaction; scaling too slow caps revenue. Finding the "utilization sweet spot" is a dynamic multi-objective optimization problem.
+1.  **Stochastically Lagged Queues**: Marketing spend and R&D don't yield results immediately. We implement **Multi-Phase Leads Queues** and **Brand Momentum** decay models, forcing agents to value delayed rewards.
+2.  **Human Capital Latency**: Hiring isn't instant. New employees enter a **3-step Training Queue**, creating a "Burn-before-Value" period that tests long-horizon liquidity management.
+3.  **The Credit Squeeze Paradox**: High-growth strategies often lead to liquidity crises. The environment implements a "Lender Trust" metric that non-linearly scales interest rates and bankruptcy risk based on historical burn rates.
 
 ### The Economic Flywheel
 ```mermaid
@@ -99,16 +99,16 @@ The agent must allocate resources across 6 dimensions:
 ---
 ## 📊 Baseline Performance
 
-The environment has been validated using a zero-shot LLM agent (`gpt-4o-mini`).
+The environment has been validated using a zero-shot LLM agent (`gpt-4o-mini`) with a strategic system prompt.
 
 | Task ID | Model | Steps | Score | Status |
 | :--- | :--- | :--- | :--- | :--- |
-| `task-1-growth` | `gpt-4o-mini` | 25 | **0.535** | ✅ Passed |
-| `task-2-viral` | `gpt-4o-mini` | 20 | **0.386** | ⚡ Failed |
-| `task-3-price` | `gpt-4o-mini` | 20 | **0.190** | ⚡ Failed |
+| `task-1-growth` | `gpt-4o-mini` | 25 | **0.692** | ✅ Passed |
+| `task-2-viral` | `gpt-4o-mini` | 20 | **0.665** | ✅ Passed |
+| `task-3-price` | `gpt-4o-mini` | 18 | **0.469** | ⚡ Failed |
 
 > [!TIP]
-> **Scientific Insight**: The baseline results demonstrate a clear difficulty progression. While `gpt-4o-mini` successfully bootstraps growth (Task 1), it struggles with the high capital-efficiency requirements of the pricing war (Task 3), proving that StratOS-RL requires advanced strategic reasoning.
+> **Scientific Insight**: The baseline results demonstrate that while current LLMs can handle linear growth (Task 1), they struggle with **high-fixed-cost insolvency traps** (Task 3). The 3-month hiring lag in Task 3 proved fatal for the agent, which failed to anticipate the 'burn-before-revenue' period, leading to a liquidity death spiral. This confirms StratOS-RL as a valid benchmark for long-horizon strategic reasoning.
 
 > [!NOTE]
 > This environment is built for **OpenEnv compliance**. It provides a deterministic grader and standardized server/client interfaces for fair benchmarking.

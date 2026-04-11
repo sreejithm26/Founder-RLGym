@@ -59,6 +59,10 @@ class SaaSState:
     leads_queue: List[float] = field(default_factory=lambda: [0.0] * 5)
     leads_queue_enterprise: List[float] = field(default_factory=lambda: [0.0] * 10)
     product_queue: List[float] = field(default_factory=lambda: [0.0] * 3)
+    hiring_queue: List[int] = field(default_factory=lambda: [0] * 4) # 3-month ramp up
+    
+    brand_momentum: float = 0.0 # Decaying marketing effect
+    grace_hires_remaining: int = 2 # First 2 hires are instant to avoid early-game death
     
     # Episode context
     step_number: int = 0
@@ -203,6 +207,7 @@ class SaaSState:
             self.leads_queue_enterprise[k_ent] += leads_ent
             
             self.brand += 0.01 * math.log(1 + a_marketing)
+            self.brand_momentum += 0.05 * math.log(1 + a_marketing)
             self.current_traffic += int(1.5 * math.log(1 + a_marketing) * self.brand * credit_factor + self.noise.sample_demand_noise())
             logs.append(f"Spent ${a_marketing:.2f} on marketing.")
             
@@ -212,10 +217,17 @@ class SaaSState:
             self.product_queue.append(val)
             if a_hiring >= 1000:
                 hires = int(a_hiring / 1000)
-                self.team_size += hires
-                logs.append(f"Hired {hires} employees.")
+                if self.grace_hires_remaining > 0:
+                    self.team_size += hires
+                    self.grace_hires_remaining -= 1
+                    logs.append(f"Hired {hires} employees (Grace hire - instant).")
+                else:
+                    self.hiring_queue.append(hires)
+                    logs.append(f"Hired {hires} employees (Starting ramp-up).")
+                
         else:
             self.product_queue.append(0.0)
+            self.hiring_queue.append(0)
             if self.product_quality > 1.0:
                 self.product_quality *= 0.98
                 
@@ -229,6 +241,16 @@ class SaaSState:
         """Internal monthly cycle logic."""
         logs = []
         if not self.noise: return logs, 0.0
+        
+        # 0. Process Long-Horizon Queues
+        if self.hiring_queue:
+            new_hires = self.hiring_queue.pop(0)
+            if new_hires > 0:
+                self.team_size += new_hires
+                logs.append(f"[HR] Training complete: {new_hires} new employees are now productive.")
+        
+        self.brand += self.brand_momentum
+        self.brand_momentum *= 0.6 # Decays over time
         
         # Basic Acquisition
         new_basic = 0
