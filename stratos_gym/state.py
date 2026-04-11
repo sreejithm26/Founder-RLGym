@@ -1,5 +1,5 @@
 """
-SaaSState — the mutable episode state for StratOS-RL.
+SaaSState — Strategy-forcing physics for StratOS-RL.
 """
 
 from __future__ import annotations
@@ -14,65 +14,58 @@ import numpy as np
 from stratos_gym.models import ActionType, StratosAction, StratosObservation
 from stratos_gym.math.noise import NoiseGenerator
 
+SUPPORT_CAPACITY_PER_FTE = 120
+
 
 @dataclass
 class SaaSState:
-    """Full mutable state for one StratOS-RL episode."""
+    """A task-aware state engine where the rules of the game change per scenario."""
 
     # Core Financials
     cash: float = 5000.0
     mrr: float = 0.0
-    debt_limit: float = -15000.0
+    debt_limit: float = -5000.0
+    
+    # Temporal Signals
+    prev_mrr: float = 0.0
+    prev_cash: float = 5000.0
+    last_marketing_spend: float = 0.0
     
     # Customers & Market
     active_basic: int = 0
-    active_enterprise: int = 0
     active_customers: int = 0
+    active_enterprise: int = 0
     
     conversion_rate: float = 0.05
-    churn_rate: float = 0.05
-    churn_rate_enterprise: float = 0.01
-    effective_churn: float = 0.05
+    churn_rate: float = 0.04
+    effective_churn: float = 0.04
     
     infrastructure_capacity: int = 1000
-    infrastructure_utilization: float = 0.0
-    current_traffic: int = 0
-    last_infra_change_step: int = -10
+    current_traffic: float = 0.0
     
     # Product & Team
     product_quality: float = 1.0
-    brand: float = 1.0
+    brand_momentum: float = 0.0
     competitor_strength: float = 1.0
-    market_share: float = 0.0
-    customer_satisfaction: float = 0.7
     
     team_size: int = 1
-    employee_salary: float = 200.0
+    employee_salary: float = 1000.0
+    trainee_salary: float = 400.0
     
-    # Acquisition
-    cac: float = 12.0
+    # Economics
+    cac: float = 20.0
     ltv: float = 400.0
-    price_per_user: float = 20.0
-    price_enterprise: float = 500.0
+    price_per_user: float = 25.0
     
     # Internal Queues
-    leads_queue: List[float] = field(default_factory=lambda: [0.0] * 5)
-    leads_queue_enterprise: List[float] = field(default_factory=lambda: [0.0] * 10)
-    product_queue: List[float] = field(default_factory=lambda: [0.0] * 3)
-    hiring_queue: List[int] = field(default_factory=lambda: [0] * 4) # 3-month ramp up
-    
-    brand_momentum: float = 0.0 # Decaying marketing effect
-    grace_hires_remaining: int = 2 # First 2 hires are instant to avoid early-game death
+    hiring_queue: List[Dict[str, Any]] = field(default_factory=list)
     
     # Episode context
     step_number: int = 0
     episode_seed: int = 0
-    max_steps: int = 25
-    active_task: str = "task-1-growth"
+    max_steps: int = 30 # Standardized
+    active_task: str = "task-1-viral"
     is_done: bool = False
-    
-    insolvency_steps: int = 0
-    last_debt_payment: float = 0.0
     
     # Helpers
     rng: Any = field(default_factory=lambda: np.random.default_rng())
@@ -82,271 +75,214 @@ class SaaSState:
         self.rng = np.random.default_rng(self.episode_seed)
         self.noise = NoiseGenerator(self.episode_seed)
 
-    def seed(self, seed: int) -> None:
-        self.episode_seed = seed
-        self.rng = np.random.default_rng(seed)
-        self.noise = NoiseGenerator(seed)
+    def calculate_burn(self) -> float:
+        # Salaries
+        trainee_exp = sum(h["count"] for h in self.hiring_queue) * self.trainee_salary
+        active_exp = self.team_size * self.employee_salary
+        
+        # Scenario-specific infra costs (e.g. Price War makes infra more expensive per user)
+        base_infra_mult = 0.2
+        if self.active_task == "task-3-price":
+            base_infra_mult = 0.8 # Lowered from 1.2
+            
+        infra_burn = (base_infra_mult * (self.active_customers ** 0.95)) + (self.infrastructure_capacity * 0.05)
+        
+        return trainee_exp + active_exp + infra_burn
 
     def to_observation(self) -> StratosObservation:
-        """Build StratosObservation from current state."""
+        burn = self.calculate_burn()
+        net_flow = self.mrr - burn
+        runway = 99 if net_flow >= 0 else round(abs(self.cash / max(1, burn - self.mrr)), 1)
+        
         dashboard = {
-            "bank": {"cash": round(self.cash, 2), "MRR": round(self.mrr, 2)},
-            "aws": {
-                "capacity": self.infrastructure_capacity,
-                "utilization": round(self.infrastructure_utilization, 2),
+            "bank": {
+                "cash": round(self.cash, 2), 
+                "MRR": round(self.mrr, 2),
+                "burn_rate": round(burn, 2),
+                "runway_months": runway
             },
-            "analytics": {
-                "active_visitors": self.current_traffic,
+            "unit_economics": {
                 "CAC": round(self.cac, 2),
                 "LTV": round(self.ltv, 2),
+                "churn_rate": round(self.effective_churn, 3),
+                "price_point": self.price_per_user
             },
-            "market": {
-                "market_share": round(self.market_share, 3),
-                "brand": round(self.brand, 2),
+            "internal_metrics": {
+                "product_quality": round(self.product_quality, 2),
+                "conversion_rate": round(self.conversion_rate, 4),
+                "competitor_strength": round(self.competitor_strength, 2),
             },
-            "pricing": {
-                "price_per_user": round(self.price_per_user, 2),
+            "ops": {
                 "active_customers": self.active_customers,
-            },
-            "cohorts": {
-                "basic": self.active_basic,
-                "enterprise": self.active_enterprise,
-            },
-            "hr": {
-                "team_size": self.team_size,
-                "monthly_burn": round(self.team_size * self.employee_salary, 2),
-            },
+                "support_utilization": round(self.active_customers / max(SUPPORT_CAPACITY_PER_FTE, self.team_size * SUPPORT_CAPACITY_PER_FTE), 2),
+                "infra_utilization": round(self.active_customers / max(1, self.infrastructure_capacity), 2)
+            }
         }
-        
         return StratosObservation(
             dashboard=dashboard,
-            logs=[],  # Populated by apply_action
-            hint="",  # Populated by task logic
+            logs=[],
+            hint="",
             step_number=self.step_number,
         )
 
     def apply_action(self, action: StratosAction) -> List[str]:
-        """Apply agent action and advance state using Saas CEO logic."""
         logs = []
+        if self.is_done: return ["Terminated."]
+
+        self.prev_mrr = self.mrr
+        self.prev_cash = self.cash
+
+        # 1. Budget Throttling
+        burn_est = self.calculate_burn()
+        available_liquidity = max(0.0, self.cash - self.debt_limit - (burn_est * 1.3))
         
-        # 1. Action Validation & Spend Protection
-        fixed_burn = 250.0 + (self.team_size * self.employee_salary) + (self.infrastructure_capacity * 0.1)
-        total_debt = abs(min(0.0, self.cash))
-        debt_installment = total_debt * 0.05
-        monthly_reserve = fixed_burn + debt_installment
+        spending_req = (action.a_marketing + action.a_product + action.a_infra + action.a_hiring)
         
-        max_credit_line = self.mrr * 6.0
-        lender_trust = 1.0 - (total_debt / 20000.0) ** 2
-        available_credit = max(0.0, (max_credit_line - total_debt) * max(0.0, lender_trust))
-        physical_ceiling = max(0.0, self.cash - self.debt_limit - monthly_reserve)
-        trust_ceiling = max(0.0, self.cash + available_credit - monthly_reserve)
-        
-        max_optional_liquidity = max(trust_ceiling, min(1000.0, physical_ceiling))
-        
-        a_marketing = action.a_marketing
-        a_product = action.a_product
-        a_infra = action.a_infra
-        a_hiring = action.a_hiring
-        
-        requested = a_marketing + a_product + a_infra + a_hiring
-        if requested > max_optional_liquidity and requested > 0:
-            ratio = max_optional_liquidity / requested
-            a_marketing *= ratio
-            a_product *= ratio
-            a_infra *= ratio
-            a_hiring *= ratio
-            logs.append(f"[SYSTEM] Budget Throttled: Action scaled to {int(ratio*100)}% to fit debt limit.")
-            
-        total_spend = a_marketing + a_product + a_infra + a_hiring
-        self.cash -= total_spend
-        self.last_debt_payment = action.a_debt_repayment
-        
-        # 2. Credit Squeeze
-        credit_factor = 1.0
-        if self.cash < 0:
-            debt_ratio = abs(self.cash) / 15000.0
-            credit_factor = max(0.5, 1.0 - (debt_ratio ** 1.5))
-            
-        # 3. Infra Expansion
-        if a_infra > 0:
-            if self.step_number - self.last_infra_change_step >= 2:
-                self.last_infra_change_step = self.step_number
-                self.infrastructure_capacity += int(a_infra * 2.0)
-                logs.append(f"Expanded infra. New Cap: {self.infrastructure_capacity}")
-            else:
-                logs.append("Infra expansion skipped (cooldown).")
-                self.cash += a_infra
-                
-        # 4. Pricing
-        effective_price = action.price if action.price > 0 else self.price_per_user
-        if effective_price > 200.0:
-            logs.append(f"[ERROR] Pricing too high: ${effective_price:.2f} blocked.")
-        elif effective_price > 0:
-            self.price_per_user = effective_price
-            self.ltv = effective_price / max(0.01, self.churn_rate)
-            logs.append(f"Set subscription price to ${effective_price:.2f}/mo.")
-            
-        # 5. Marketing Queue
-        if a_marketing > 0 and self.noise:
-            marketing_basic = a_marketing * 0.9
-            marketing_ent = a_marketing * 0.1
-            
-            saturation = self.active_customers / 450.0
-            base_cost = 10.0 + self.noise.sample_cac_noise(0.5)
-            quality_eff = 1.0 / (1.0 + (self.product_quality * 0.6))
-            cost = base_cost * (1.0 + saturation ** 1.8) * quality_eff
-            
-            k_basic = self.rng.integers(0, 2)
-            leads_basic = (marketing_basic * credit_factor) / cost
-            while len(self.leads_queue) <= k_basic: self.leads_queue.append(0.0)
-            self.leads_queue[k_basic] += leads_basic
-            
-            k_ent = self.rng.integers(2, 6)
-            leads_ent = (marketing_ent * credit_factor) / (cost * 12.0)
-            while len(self.leads_queue_enterprise) <= k_ent: self.leads_queue_enterprise.append(0.0)
-            self.leads_queue_enterprise[k_ent] += leads_ent
-            
-            self.brand += 0.01 * math.log(1 + a_marketing)
-            self.brand_momentum += 0.05 * math.log(1 + a_marketing)
-            self.current_traffic += int(1.5 * math.log(1 + a_marketing) * self.brand * credit_factor + self.noise.sample_demand_noise())
-            logs.append(f"Spent ${a_marketing:.2f} on marketing.")
-            
-        # 6. Product & Hiring
-        if a_product > 0 or a_hiring > 0:
-            val = 0.5 * math.log(1 + a_product) + 0.2 * math.log(1 + a_hiring)
-            self.product_queue.append(val)
-            if a_hiring >= 1000:
-                hires = int(a_hiring / 1000)
-                if self.grace_hires_remaining > 0:
-                    self.team_size += hires
-                    self.grace_hires_remaining -= 1
-                    logs.append(f"Hired {hires} employees (Grace hire - instant).")
-                else:
-                    self.hiring_queue.append(hires)
-                    logs.append(f"Hired {hires} employees (Starting ramp-up).")
-                
+        if spending_req > available_liquidity and spending_req > 0:
+            scale = available_liquidity / spending_req
+            a_marketing, a_product, a_infra, a_hiring = action.a_marketing*scale, action.a_product*scale, action.a_infra*scale, action.a_hiring*scale
+            logs.append(f"[SYSTEM] Overspent! Actions scaled to {int(scale*100)}% for liquidity safety.")
         else:
-            self.product_queue.append(0.0)
-            self.hiring_queue.append(0)
-            if self.product_quality > 1.0:
-                self.product_quality *= 0.98
-                
-        # 7. Step Tick Logic (Simplified Integration)
-        tick_logs, latency = self._tick()
-        logs.extend(tick_logs)
+            a_marketing, a_product, a_infra, a_hiring = action.a_marketing, action.a_product, action.a_infra, action.a_hiring
+
+        # 2. Strategy-Forcing Mutations
+        self.cash -= (a_marketing + a_product + a_infra + a_hiring)
+        self.last_marketing_spend = a_marketing
         
+        if a_marketing > 0:
+            boost = 0.15
+            if self.active_task == "task-6-red-ocean": boost = 0.05 # Marketing is less effective
+            self.brand_momentum += boost * math.log(1 + a_marketing)
+            
+        if a_product > 0:
+            self.product_quality += 0.12 * math.tanh(a_product / 1500.0)
+            self.product_quality = min(5.0, self.product_quality)
+            
+        if a_infra > 0:
+            self.infrastructure_capacity += int(a_infra * 4.0)
+
+        if a_hiring >= 400:
+            n = int(a_hiring / 400.0)
+            self.hiring_queue.append({"count": n, "steps_left": 2})
+            logs.append(f"HR: Training started for {n} staff.")
+
+        if action.price > 0:
+            self.price_per_user = action.price
+
+        logs.extend(self._tick())
         return logs
 
-    def _tick(self) -> Tuple[List[str], float]:
-        """Internal monthly cycle logic."""
+    def _tick(self) -> List[str]:
         logs = []
-        if not self.noise: return logs, 0.0
+        if not self.noise: return logs
         
-        # 0. Process Long-Horizon Queues
-        if self.hiring_queue:
-            new_hires = self.hiring_queue.pop(0)
-            if new_hires > 0:
-                self.team_size += new_hires
-                logs.append(f"[HR] Training complete: {new_hires} new employees are now productive.")
+        # 1. Pipeline
+        for h in self.hiring_queue:
+            h["steps_left"] -= 1
+        graduates = sum(h["count"] for h in self.hiring_queue if h["steps_left"] <= 0)
+        self.team_size += graduates
+        self.hiring_queue = [h for h in self.hiring_queue if h["steps_left"] > 0]
+
+        # 2. Operating Cycle
+        burn = self.calculate_burn()
+        self.cash -= burn
         
-        self.brand += self.brand_momentum
-        self.brand_momentum *= 0.6 # Decays over time
+        # Task Specific: Debt Spiral compounding interest
+        if self.active_task == "task-5-debt" and self.cash < 0:
+            interest = abs(self.cash) * 0.05
+            self.cash -= interest
+            logs.append(f"[DEBT] Paid ${interest:.2f} in emergency interest.")
+
+        self.mrr = self.active_customers * self.price_per_user
+        self.cash += self.mrr
         
-        # Basic Acquisition
-        new_basic = 0
-        if self.leads_queue:
-            leads = self.leads_queue.pop(0)
-            market_eff = 1.0 / (1.0 + (self.active_customers / 550.0) ** 2)
-            price_ratio = max(0.5, self.price_per_user / 30.0)
-            elasticity = 1.0 / (price_ratio ** 1.5)
-            volatility = 1.0 + self.noise.sample_demand_noise(0.05)
-            conv = min(1.0, max(0.0001, self.conversion_rate * market_eff * elasticity * volatility * (0.5 + self.customer_satisfaction)))
-            
-            expected = leads * conv
-            new_basic = int(expected) + (1 if self.rng.random() < (expected % 1) else 0)
-            self.active_basic += new_basic
-            if new_basic > 0:
-                self.cac = (leads * 12.0) / new_basic + self.noise.sample_cac_noise()
-        
-        # Enterprise Acquisition
-        if self.leads_queue_enterprise:
-            ent_leads = self.leads_queue_enterprise.pop(0)
-            expected_ent = ent_leads * self.conversion_rate * 0.2
-            new_ent = int(expected_ent) + (1 if self.rng.random() < (expected_ent % 1) else 0)
-            self.active_enterprise += new_ent
-            if new_ent > 0: logs.append(f"Closed {new_ent} Enterprise deals!")
-            
-        self.active_customers = self.active_basic + self.active_enterprise
-        self.market_share = min(1.0, self.active_customers / 5000.0) # Assume TAM is 5000 customers
-        
-        if self.product_queue:
-            self.product_quality += self.product_queue.pop(0)
-            
-        # Satisfaction & Latency
-        self.infrastructure_utilization = self.current_traffic / max(1, self.infrastructure_capacity)
-        latency_penalty = max(0.0, self.infrastructure_utilization - 1.0)
-        
-        price_factor = 1.2 / (0.2 + (self.price_per_user / 25.0) ** 2) if self.price_per_user > 25 else 1.0
-        quality_factor = min(1.2, 0.5 + 0.5 * math.log10(1 + self.product_quality))
-        latency_factor = max(0.2, 1.0 - latency_penalty)
-        
-        target_csat = (price_factor * 0.4) + (quality_factor * 0.4) + (latency_factor * 0.2)
-        self.customer_satisfaction = self.customer_satisfaction * 0.8 + target_csat * 0.2
-        
-        # Churn
-        price_churn = (self.price_per_user / 30.0) ** 1.8 if self.price_per_user > 30 else 1.0
-        support_workload = (self.active_basic / 100.0) + (self.active_enterprise / 10.0)
-        support_mult = max(1.0, (support_workload / max(0.5, self.team_size)) ** 0.6)
-        quality_mult = 1.2 / (0.2 + self.product_quality * 0.8)
-        sat_mult = max(0.8, 2.5 - (self.customer_satisfaction * 1.8))
-        
-        self.effective_churn = max(0.01, self.churn_rate * price_churn * support_mult * quality_mult * sat_mult)
-        
-        churned_basic = int(self.active_basic * self.noise.sample_churn_factor(self.effective_churn))
-        self.active_basic = max(0, self.active_basic - churned_basic)
-        
-        ent_churn = self.churn_rate_enterprise * sat_mult
-        churned_ent = int(self.active_enterprise * self.noise.sample_churn_factor(ent_churn))
-        self.active_enterprise = max(0, self.active_enterprise - churned_ent)
-        
-        # Financials
-        self.active_customers = self.active_basic + self.active_enterprise
-        revenue = (self.active_basic * self.price_per_user) + (self.active_enterprise * self.price_enterprise)
-        self.mrr = revenue
-        
-        burn = (self.infrastructure_capacity * 0.1) + (self.team_size * self.employee_salary) + 250.0
-        total_debt = abs(min(0.0, self.cash))
-        interest = total_debt * 0.025
-        self.cash = self.cash + revenue - burn - interest
-        
-        # Insolvency Check
-        max_credit = revenue * 6.0
-        trust = 1.0 - (total_debt / 20000.0) ** 2
-        avail_credit = max(0.0, (max_credit - total_debt) * max(0.0, trust))
-        
-        if (max(0.0, self.cash) + revenue + avail_credit) < (burn + total_debt * 0.05):
-            self.insolvency_steps += 1
-            logs.append(f"[WARNING] Insolvency steps: {self.insolvency_steps}/10")
+        # 3. Rules of the Game (Non-linear physics)
+        reference_price = 500.0 if self.active_task == "task-2-enterprise" else 25.0
+        price_ratio = self.price_per_user / reference_price
+        # Exponential price sensitivity
+        if price_ratio > 1.0:
+            if self.active_task == "task-3-price":
+                e_mult = 3.0
+                churn_power = 2.0
+            elif self.active_task == "task-2-enterprise":
+                e_mult = 0.6
+                churn_power = 1.2
+            else:
+                e_mult = 2.0
+                churn_power = 2.0
+            elasticity = math.exp(-e_mult * (price_ratio - 1.0))
+            churn_impact = price_ratio ** churn_power
         else:
-            self.insolvency_steps = 0
+            discount_boost = 0.1 if self.active_task == "task-2-enterprise" else 0.4
+            elasticity = 1.0 + discount_boost * (1.0 - price_ratio)
+            churn_impact = 1.0
+
+        # Market Saturation (TAM = 10k)
+        saturation = 1.0 - (self.active_customers / 10000.0)
+        task_comp_growth = 0.05 if self.active_task == "task-6-red-ocean" else 0.012
+        self.competitor_strength += task_comp_growth + (0.0001 * self.active_customers)
+        
+        # 4. Growth Cycle
+        traffic = (60 + (self.brand_momentum * 150.0)) * saturation
+        traffic *= self.noise.sample_demand_noise(0.08)
+        
+        prod_bonus = 1.0 + (self.team_size * 0.02)
+        conv = (self.conversion_rate * elasticity * prod_bonus) / self.competitor_strength
+        
+        new_users = int(traffic * self.product_quality * conv)
+        self.active_customers += new_users
+        
+        # 5. Churn & Crisis Checks
+        infra_util = self.active_customers / max(1, self.infrastructure_capacity)
+        # Task 1 Crisis Check: Viral overload kills the company
+        if self.active_task == "task-1-viral" and infra_util > 2.0:
+            logs.append("[FAIL] Infrastructure melted under viral load!")
+            self.is_done = True
             
-        self.current_traffic = max(0, int(self.current_traffic * 0.7 + self.noise.sample_demand_noise()))
+        support_capacity = max(SUPPORT_CAPACITY_PER_FTE, self.team_size * SUPPORT_CAPACITY_PER_FTE)
+        support_ratio = self.active_customers / support_capacity
+        support_penalty = max(0, (support_ratio - 1.0) * 0.4)
+        
+        quality_gate = 1.0
+        if self.active_task == "task-2-enterprise" and self.product_quality < 1.0:
+            quality_gate = 3.0 # Brutal churn if quality not met
+            
+        self.effective_churn = max(0.01, (self.churn_rate * churn_impact * quality_gate + support_penalty) / self.product_quality)
+        self.effective_churn *= self.noise.sample_churn_factor(1.0)
+        
+        churned = int(self.active_customers * self.effective_churn)
+        self.active_customers = max(0, self.active_customers - churned)
+
+        # 6. Unit Econ
+        if new_users > 0:
+            self.cac = self.last_marketing_spend / new_users
+        self.ltv = self.price_per_user / max(0.01, self.effective_churn)
+        
         self.step_number += 1
-        return logs, latency_penalty
+        self.brand_momentum *= 0.75
+        
+        # 7. TERMINATION
+        if self.cash < self.debt_limit:
+            logs.append("[BANKRUPT] Out of cash.")
+            self.is_done = True
+        elif self.mrr >= 10000.0:
+            logs.append("[IPO] Target reached!")
+            self.is_done = True
+        elif self.step_number >= self.max_steps:
+            self.is_done = True
+
+        return logs
 
     def is_terminal(self) -> bool:
-        if self.step_number >= self.max_steps: return True
-        if self.insolvency_steps >= 10: return True
-        if self.cash < self.debt_limit: return True
-        return False
+        return self.is_done
 
     def clone(self) -> SaaSState:
         cloned = copy.deepcopy(self)
-        cloned.rng = copy.deepcopy(self.rng)
+        if hasattr(self, "rng"): cloned.rng = copy.deepcopy(self.rng)
         return cloned
 
     def to_dict(self) -> Dict[str, Any]:
         d = copy.deepcopy(self.__dict__)
-        if "rng" in d: del d["rng"]
-        if "noise" in d: del d["noise"]
+        if "rng" in d: d["rng"] = None # Avoid pickle issues
+        if "noise" in d: d["noise"] = None
         return d

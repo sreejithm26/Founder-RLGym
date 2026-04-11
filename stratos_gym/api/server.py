@@ -48,19 +48,31 @@ async def reset_endpoint(
     request: Optional[ResetRequest] = None,
     task: Optional[str] = Query(default=None),
 ) -> StepResult:
-    task_id = task or (request.task_id if request else None) or "task-1-growth"
+    task_id = task or (request.task_id if request else None) or "task-1-viral"
     seed = int((request.seed if request else None) or 0)
 
     if task_id not in TASK_REGISTRY:
         raise HTTPException(status_code=400, detail=f"Unknown task: {task_id}")
 
-    return await _env.reset(task_id=task_id, seed=seed)
+    observation = await _env.reset(task_id=task_id, seed=seed)
+    return StepResult(
+        observation=observation,
+        reward=0.0,
+        done=False,
+        info={"task_name": task_id},
+    )
 
 
 @app.post("/step")
 async def step_endpoint(action: StratosAction) -> StepResult:
     try:
-        return await _env.step(action)
+        observation, reward, done, info = await _env.step(action)
+        return StepResult(
+            observation=observation,
+            reward=reward,
+            done=done,
+            info=info,
+        )
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

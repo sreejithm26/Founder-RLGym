@@ -75,7 +75,6 @@ class StratosAction(BaseModel):
     a_product: float = Field(default=0.0)
     a_infra: float = Field(default=0.0)
     a_hiring: float = Field(default=0.0)
-    a_debt_repayment: float = Field(default=0.0)
     reasoning: Optional[str] = None
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
 
@@ -92,8 +91,8 @@ class StratosReward(BaseModel):
 
     @model_validator(mode="after")
     def clamp_value(self) -> "StratosReward":
-        """Hard-clamp reward to [0, 1] to satisfy OpenEnv contract."""
-        self.value = float(min(1.0, max(0.0, self.value)))
+        """RL-Friendly clamping to avoid extreme outliers only."""
+        self.value = float(min(200.0, max(-100.0, self.value)))
         return self
 
 

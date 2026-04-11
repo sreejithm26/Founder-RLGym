@@ -1,143 +1,85 @@
-"""
-StratosEnv — the top-level OpenEnv environment class.
-"""
-
 from __future__ import annotations
 
 import asyncio
-import logging
-import os
-import subprocess
-import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-import httpx
-
-from stratos_gym.graders import StratosGrader
-from stratos_gym.models import StratosAction, ResetRequest, StateResult, StepResult
-from stratos_gym.tasks import TASK_REGISTRY, BaseTask
-
-logger = logging.getLogger(__name__)
-
-_DEFAULT_PORT = 8000
-_HEALTH_TIMEOUT = 30
+from stratos_gym.graders.stratos_grader import StratosGrader
+from stratos_gym.models import StratosAction, StratosObservation, StratosReward, StateResult
+from stratos_gym.tasks.registry import TaskRegistry, BaseTask
 
 _GRADER = StratosGrader()
 
 
-class _InProcessBackend:
-    def __init__(self) -> None:
+class StratosEnv:
+    """
+    OpenEnv compliant environment for SaaS CEO simulation.
+    Now follows standard Gym step signature: (obs, reward, done, info)
+    """
+
+    @staticmethod
+    def in_process() -> StratosEnv:
+        """Factory for in-process usage."""
+        return StratosEnv()
+
+    def __init__(self):
+        self._registry = TaskRegistry()
         self._task: Optional[BaseTask] = None
-        self._task_id: str = "task-1-growth"
+        self._last_obs: Optional[StratosObservation] = None
 
-    async def reset(self, task_id: str = "task-1-growth", seed: int = 0) -> StepResult:
-        if task_id not in TASK_REGISTRY:
-            raise ValueError(f"Unknown task_id {task_id}")
-        self._task_id = task_id
-        self._task = TASK_REGISTRY[task_id]()
-        observation = self._task.reset(seed=seed)
-        return StepResult(observation=observation, reward=0.0, done=False, info={})
-
-    async def step(self, action: StratosAction) -> StepResult:
-        if self._task is None:
-            raise RuntimeError("Reset first.")
+    async def reset(self, task_id: str = "task-1-viral", seed: Optional[int] = None) -> StratosObservation:
+        """Reset environment to a specific task scenario."""
+        self._task = self._registry.get(task_id)
         
-        observation, done = self._task.step(action)
-        grade = self._grade(action)
-        return StepResult(
-            observation=observation,
-            reward=float(grade["reward"]),
-            done=done,
-            info=grade.get("info", {}),
-        )
+        # Reset task state
+        obs = self._task.reset(seed=seed or 0)
+        self._last_obs = obs
+        return obs
 
-    def _grade(self, action: StratosAction) -> Dict[str, Any]:
-        assert self._task is not None and self._task.state is not None
-        return _GRADER.grade(action, self._task.state, self._task.ground_truth, self._task.state.step_number)
+    async def step(self, action: StratosAction) -> Tuple[StratosObservation, float, bool, Dict[str, Any]]:
+        """
+        Standard Gym Step.
+        Returns: (observation, reward, done, info)
+        """
+        if self._task is None:
+            raise RuntimeError("Environment must be reset before step.")
+
+        # Advance physics
+        obs, done = self._task.step(action)
+        
+        # Calculate Reward
+        reward_obj = _GRADER.grade(
+            action=action,
+            state=self._task.state,
+            ground_truth=self._task.ground_truth,
+            step_number=self._task.state.step_number
+        )
+        
+        # Prepare Info dict for debugging/logs
+        info = {
+            "reward_components": reward_obj.components,
+            "logs": obs.logs,
+            "task_name": self._task.name
+        }
+        
+        self._last_obs = obs
+        return obs, reward_obj.value, done, info
 
     async def state(self) -> StateResult:
+        """Deep snapshot for debugging or grading."""
         if self._task is None or self._task.state is None:
-            raise RuntimeError("Reset first.")
+            raise RuntimeError("No state available.")
+        
         snap = self._task.state.clone()
         return StateResult(
-            task_id=self._task_id,
+            stratos_state=snap.to_dict(),
+            task_id=self._task.name,
             step_number=snap.step_number,
             episode_seed=snap.episode_seed,
-            stratos_state=snap.to_dict(),
-            is_done=snap.is_done,
+            is_done=snap.is_terminal()
         )
 
+    async def list_tasks(self) -> List[str]:
+        return self._registry.list_tasks()
 
-class StratosEnv:
-    def __init__(self, base_url: Optional[str] = None, _in_process: bool = False) -> None:
-        self._base_url = base_url
-        self._in_process = _in_process
-        self._client: Optional[httpx.AsyncClient] = None
-        self._container_id: Optional[str] = None
-        self._local: Optional[_InProcessBackend] = None
-        self._task_id: str = "task-1-growth"
-
-    @classmethod
-    def in_process(cls) -> StratosEnv:
-        env = cls(_in_process=True)
-        env._local = _InProcessBackend()
-        return env
-
-    @classmethod
-    async def from_docker_image(cls, image_name: str) -> StratosEnv:
-        port = _DEFAULT_PORT
-        result = subprocess.run(
-            ["docker", "run", "-d", "--rm", "-p", f"{port}:{port}", image_name],
-            capture_output=True, text=True, check=True
-        )
-        container_id = result.stdout.strip()
-        base_url = f"http://localhost:{port}"
-        env = cls(base_url=base_url)
-        env._container_id = container_id
-        env._client = httpx.AsyncClient(base_url=base_url, timeout=30.0)
-        
-        deadline = time.monotonic() + _HEALTH_TIMEOUT
-        while time.monotonic() < deadline:
-            try:
-                r = await env._client.get("/health")
-                if r.status_code == 200: return env
-            except Exception: pass
-            await asyncio.sleep(1)
-        await env.close()
-        raise RuntimeError("Container health check failed.")
-
-    async def reset(self, task_id: str = "task-1-growth", seed: int = 0) -> StepResult:
-        self._task_id = task_id
-        if self._in_process:
-            assert self._local is not None
-            return await self._local.reset(task_id, seed)
-        assert self._client is not None
-        r = await self._client.post("/reset", json=ResetRequest(task_id=task_id, seed=seed).model_dump())
-        r.raise_for_status()
-        return StepResult.model_validate(r.json())
-
-    async def step(self, action: StratosAction) -> StepResult:
-        if self._in_process:
-            assert self._local is not None
-            result = await self._local.step(action)
-        else:
-            assert self._client is not None
-            r = await self._client.post("/step", json=action.model_dump())
-            r.raise_for_status()
-            result = StepResult.model_validate(r.json())
-        return result
-
-    async def state(self) -> StateResult:
-        if self._in_process:
-            assert self._local is not None
-            return await self._local.state()
-        assert self._client is not None
-        r = await self._client.get("/state")
-        r.raise_for_status()
-        return StateResult.model_validate(r.json())
-
-    async def close(self) -> None:
-        if self._client: await self._client.aclose()
-        if self._container_id:
-            subprocess.run(["docker", "stop", self._container_id])
-            subprocess.run(["docker", "rm", self._container_id])
+    async def close(self):
+        pass

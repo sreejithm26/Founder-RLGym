@@ -11,22 +11,21 @@ tags:
   - simulation
   - optimization
 tasks:
-  - id: task-1-growth
-    name: "Bootstrapping 101"
-    difficulty: "easy"
-    max_steps: 25
-    reward_range: [0.0, 1.0]
-  - id: task-2-viral
+  - id: task-1-viral
     name: "The Viral Crash"
-    difficulty: "medium"
+    difficulty: "easy"
     max_steps: 20
+    reward_range: [0.0, 1.0]
+  - id: task-2-enterprise
+    name: "The Enterprise Pivot"
+    difficulty: "medium"
+    max_steps: 25
     reward_range: [0.0, 1.0]
   - id: task-3-price
     name: "The Efficiency War"
     difficulty: "hard"
-    max_steps: 20
+    max_steps: 30
     reward_range: [0.0, 1.0]
 observation_space: stratos_gym.models.StratosObservation
 action_space: stratos_gym.models.StratosAction
-# Note: StepResult is the container for rewards and info
-reward_model: stratos_gym.models.StepResult
+reward_model: stratos_gym.models.StratosReward

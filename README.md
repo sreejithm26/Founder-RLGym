@@ -18,6 +18,27 @@ license: mit
 
 ---
 
+## 📊 Baseline Performance
+
+The following results were collected during core experimentation, demonstrating the non-linear difficulty jump between tasks and the performance delta of various reasoning models.
+
+| Task (Difficulty)         | Model       | Score      | Steps | Success | Key Behavior                       |
+| ------------------------- | ----------- | ---------- | ----- | ------- | ---------------------------------- |
+| **Task 1 – Viral** 🟢     | GPT-4o-mini | 0.578      | 20    | ❌       | Product loop, slow decline         |
+|                           | GPT-4o      | 0.553      | 20    | ❌       | Marketing spam → plateau           |
+|                           | GPT-5.4     | **0.739**  | **6** | ✅       | Fast win via pricing + infra       |
+| **Task 2 – Enterprise** 🟡 | GPT-4o-mini | 0.462      | 25    | ❌       | Late-stage failure                 |
+|                           | GPT-4o      | ~0.58      | 25    | ❌       | Builds, no monetization            |
+|                           | GPT-5.4     | **0.644**  | **16**| ✅       | quality → demand → pricing         |
+| **Task 3 – Pricing** 🔴    | GPT-4o-mini | 0.102      | 28    | ❌       | Cash death spiral                  |
+|                           | GPT-4o      | 0.61       | 30    | ❌       | Oscillation (price ↔ growth)       |
+|                           | GPT-5.4     | 0.596      | 30    | ❌       | Price elasticity + recovery loops  |
+
+> [!IMPORTANT]
+> The environment is tuned for **GPT-4o-level reasoning**. Smaller models frequently hallucinate fiscal bounds or fail to prioritize bottleneck resolution, leading to rapid insolvency.
+
+---
+
 ## 🔬 The Scientific Challenge: "Temporal Credit Assignment in Stochastic Economies"
 
 StratOS-RL is specifically engineered to be **insolvable by simple reactive agents**. It presents a "Hard AI" problem through three core mechanisms:
@@ -61,6 +82,9 @@ python -m server.app
 
 ### 3. Run a Baseline Agent
 ```bash
+export OPENAI_API_KEY=...
+export API_BASE_URL=...
+export MODEL_NAME=...
 python inference.py
 ```
 
@@ -72,9 +96,9 @@ StratOS-RL includes three deterministic evaluation scenarios:
 
 | Task ID | Name | Difficulty | Objective |
 | :--- | :--- | :--- | :--- |
-| `task-1-growth` | **Bootstrapping 101** | Easy | Scaling MRR from $0 to $10k with limited initial capital. |
-| `task-2-viral` | **The Viral Crash** | Medium | Managing a sudden 10x influx of traffic without collapsing infrastructure or quality. |
-| `task-3-price` | **The Efficiency War** | Hard | Optimizing LTV/CAC in a mature, high-churn market with aggressive competitors. |
+| `task-1-viral` | **The Viral Crash** | Easy | Managing sudden traffic influx with high momentum. |
+| `task-2-enterprise` | **The Enterprise Pivot** | Medium | Managing high-LTV, high-churn enterprise accounts. |
+| `task-3-price` | **The Efficiency War** | Hard | Survival in low-capital, high-churn environments. |
 
 ---
 
@@ -83,32 +107,19 @@ StratOS-RL includes three deterministic evaluation scenarios:
 ### Observation Space (`StratosObservation`)
 The agent receives a full "CEO Dashboard" every step (1 month per step):
 - `bank`: Current Cash and Monthly Recurring Revenue (MRR).
-- `aws`: Infrastructure capacity vs. real-time utilization.
-- `analytics`: Customer Acquisition Cost (CAC) and Lifetime Value (LTV).
-- `market`: Brand strength and market share metrics.
+- `unit_economics`: Customer Acquisition Cost (CAC), Lifetime Value (LTV), churn, and price point.
+- `internal_metrics`: Product quality, conversion rate, and competitor strength.
+- `ops`: Active customers, support utilization, and infrastructure utilization.
 
 ### Action Space (`StratosAction`)
-The agent must allocate resources across 6 dimensions:
+The agent must allocate resources across 5 dimensions:
 - `price`: Subscription pricing strategy.
 - `a_marketing`: Direct customer acquisition spend.
 - `a_product`: R&D and product quality investment.
 - `a_infra`: Server and infrastructure expansion.
 - `a_hiring`: Talent acquisition and team scaling.
-- `a_debt_repayment`: Financial liability management.
 
 ---
-## 📊 Baseline Performance
-
-The environment has been validated using a zero-shot LLM agent (`gpt-4o-mini`) with a strategic system prompt.
-
-| Task ID | Model | Steps | Score | Status |
-| :--- | :--- | :--- | :--- | :--- |
-| `task-1-growth` | `gpt-4o-mini` | 25 | **0.692** | ✅ Passed |
-| `task-2-viral` | `gpt-4o-mini` | 20 | **0.665** | ✅ Passed |
-| `task-3-price` | `gpt-4o-mini` | 18 | **0.469** | ⚡ Failed |
-
-> [!TIP]
-> **Scientific Insight**: The baseline results demonstrate that while current LLMs can handle linear growth (Task 1), they struggle with **high-fixed-cost insolvency traps** (Task 3). The 3-month hiring lag in Task 3 proved fatal for the agent, which failed to anticipate the 'burn-before-revenue' period, leading to a liquidity death spiral. This confirms StratOS-RL as a valid benchmark for long-horizon strategic reasoning.
 
 > [!NOTE]
 > This environment is built for **OpenEnv compliance**. It provides a deterministic grader and standardized server/client interfaces for fair benchmarking.

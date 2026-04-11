@@ -1,35 +1,14 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, List
-from stratos_gym.models import StratosAction, StratosReward
-from stratos_gym.state import SaaSState
+from typing import Any, Dict, Optional
+
+from stratos_gym.models import StratosAction, StratosObservation, StratosReward
+from stratos_gym.state import SUPPORT_CAPACITY_PER_FTE, SaaSState
 
 
 class StratosGrader:
-    """Grader for all StratOS-RL tasks with task-specific reward weighting."""
-
-    # Reward weight profiles for different scientific scenarios
-    TASK_PROFILES = {
-        "task-1-growth": {
-            "survival": 0.20,
-            "mrr": 0.70,
-            "cash": 0.10,
-            "satisfaction": 0.00
-        },
-        "task-2-viral": {
-            "survival": 0.20,
-            "mrr": 0.20,
-            "cash": 0.10,
-            "satisfaction": 0.50  # High weight on handling the surge (satisfaction)
-        },
-        "task-3-price": {
-            "survival": 0.20,
-            "mrr": 0.30,
-            "cash": 0.40,  # Focus on capital efficiency (profit/cash)
-            "satisfaction": 0.10
-        }
-    }
+    """A dense reward function normalized to the OpenEnv 0.0-1.0 range."""
 
     def grade(
         self,
@@ -37,73 +16,89 @@ class StratosGrader:
         state: SaaSState,
         ground_truth: Dict[str, Any],
         step_number: int,
-    ) -> Dict[str, Any]:
-        """Grade the action using task-specific reward profiles."""
+    ) -> StratosReward:
+        """Calculate a dense, bounded reward signal for agent learning."""
         
-        # 1. Component Scoring
-        # MRR Score (normalized to $10k target)
-        mrr_score = min(1.0, state.mrr / 10000.0)
+        # 1. TERMINATION (CRITICAL FEEDBACK)
+        target_mrr = float(ground_truth.get("target_mrr", 10000.0))
+
+        if state.is_terminal():
+            # Insolvency is the ultimate failure
+            if state.cash < state.debt_limit:
+                return StratosReward(value=0.0, components={"failure": 0.0}, done=True)
+            
+            # SUCCESS (Scaling to IPO)
+            if state.mrr >= target_mrr:
+                return StratosReward(value=1.0, components={"victory": 1.0}, done=True)
+
+        # 2. TEMPORAL SIGNALS (WHAT CHANGED?)
         
-        # Efficiency Score (Cash reserves vs target)
-        cash_score = max(0.0, min(1.0, state.cash / 10000.0))
+        # A. Growth Velocity (Primary Reward)
+        # We reward the DELTA of MRR.
+        mrr_growth = state.mrr - state.prev_mrr
+        # Use tanh to normalize growth signals (-2 to 2)
+        mrr_reward = math.tanh(mrr_growth / 1000.0) * 5.0
         
-        # Market Share Score
-        mkt_score = min(1.0, state.market_share * 10.0) # Assume 10% is a good target
+        # B. Cash Gravity (Scaled Debt Penalty)
+        cash_penalty = 0.0
+        if state.cash < 0:
+            # Quadratic scaling: debt is exponentially more dangerous
+            debt_severity = abs(state.cash) / 1000.0
+            cash_penalty = -(debt_severity ** 1.5)
+            
+        # C. Runway Punishment (Non-linear tanh penalty)
+        runway_penalty = 0.0
+        burn = state.calculate_burn()
+        mrr = max(0.1, state.mrr)
+        net_burn = max(0.1, burn - state.mrr)
         
-        # Stability Score (Customer Satisfaction)
-        csat_score = state.customer_satisfaction
-        
-        # Survival Score (Progress through episode)
-        survival_score = min(1.0, state.step_number / state.max_steps)
-        
-        # 2. Get Task Weights
-        profile = self.TASK_PROFILES.get(state.active_task, self.TASK_PROFILES["task-1-growth"])
-        
-        # 3. Reward Calculation
-        done = state.is_terminal()
-        is_bankrupt = state.insolvency_steps >= 10 or state.cash < state.debt_limit
-        
-        if done:
-            if is_bankrupt:
-                # Heavy penalty for bankruptcy - only survival reward granted
-                reward = (state.step_number / state.max_steps) * 0.05
-            else:
-                # Weighted terminal evaluation
-                reward = (
-                    (survival_score * profile["survival"]) +
-                    (mrr_score * profile["mrr"]) +
-                    (cash_score * profile["cash"]) +
-                    (csat_score * profile["satisfaction"]) +
-                    (mkt_score * 0.1 if state.active_task == "task-1-growth" else 0.0)
-                )
+        if state.cash > 0:
+            runway = state.cash / net_burn if net_burn > 1.0 else 99
+            # Penalty activates when runway < 4 months, approaches -8.0 as runway hits 0
+            runway_penalty = math.tanh((runway - 4.0) / 2.0) * 4.0 - 4.0
         else:
-            # Step-wise shaping (dense reward)
-            # We use a mix of linear and log scaling to ensure strong early-game signal
-            log_mrr = (math.log10(1 + state.mrr) / 4.0) # 0.0 to 1.0 (at 10k)
-            
-            step_reward = (
-                (log_mrr * 0.4) +     # Increased weight on growth trajectory
-                (csat_score * 0.2) + 
-                (0.1 if not is_bankrupt else 0.0)
-            )
-            reward = step_reward
-            
-        reward = float(min(1.0, max(0.0, reward)))
+            runway_penalty = -10.0 # Absolute floor
+
+        # D. Unit Economics (Balanced Gradient)
+        # Target Ratio is 3.0+
+        ratio = state.ltv / max(1.0, state.cac)
+        # Rewards efficiency improvements and punishes CAC-blindness
+        unit_econ_reward = math.tanh((ratio - 3.0) / 2.0) * 2.0
         
-        return {
-            "reward": reward,
-            "done": done,
-            "components": {
-                "mrr_norm": mrr_score,
-                "cash_norm": cash_score,
-                "csat": csat_score,
-                "survival": survival_score
+        # E. Friction (Churn & Overload)
+        # Churn is the 'anti-growth' signal
+        churn_penalty = -8.0 * state.effective_churn
+        
+        # Support Overload
+        capacity = max(float(SUPPORT_CAPACITY_PER_FTE), state.team_size * float(SUPPORT_CAPACITY_PER_FTE))
+        utilization = state.active_customers / max(1, capacity)
+        support_penalty = 0.0
+        if utilization > 1.0:
+            support_penalty = -4.0 * (utilization - 1.0)
+        elif 0.7 <= utilization <= 0.95:
+            support_penalty = 0.5 # Efficiency bonus
+
+        # 3. COMPOSITE REWARD
+        raw_total = (
+            mrr_reward + 
+            cash_penalty + 
+            runway_penalty + 
+            unit_econ_reward + 
+            churn_penalty + 
+            support_penalty
+        )
+        
+        # Normalize shaping into the required [0.0, 1.0] interval.
+        total_value = (math.tanh(raw_total / 8.0) + 1.0) / 2.0
+        total_value = max(0.0, min(1.0, total_value))
+
+        return StratosReward(
+            value=round(float(total_value), 4),
+            components={
+                "growth": round(mrr_reward, 4),
+                "fiscal": round(cash_penalty + runway_penalty, 4),
+                "unity": round(unit_econ_reward, 4),
+                "friction": round(churn_penalty + support_penalty, 4)
             },
-            "info": {
-                "task": state.active_task,
-                "step": step_number,
-                "mrr": state.mrr,
-                "cash": state.cash,
-                "is_bankrupt": is_bankrupt
-            }
-        }
+            done=state.is_terminal()
+        )
