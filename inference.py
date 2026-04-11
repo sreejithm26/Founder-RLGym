@@ -20,9 +20,10 @@ from founder_gym import FounderAction, FounderGymEnv
 
 logging.basicConfig(level=logging.WARNING)
 
-API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY") or "no-key"
-API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
-MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
+API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+HF_TOKEN = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
+LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
 
 TASKS = ["task-1-growth", "task-2-viral", "task-3-price"]
 MAX_STEPS = {"task-1-growth": 25, "task-2-viral": 20, "task-3-price": 20}
@@ -100,7 +101,7 @@ async def run_episode(env: FounderGymEnv, client: AsyncOpenAI, task_id: str) -> 
 
 
 async def main() -> None:
-    client = AsyncOpenAI(api_key=API_KEY, base_url=API_BASE_URL)
+    client = AsyncOpenAI(api_key=HF_TOKEN, base_url=API_BASE_URL)
     env = FounderGymEnv.in_process()
     for task_id in TASKS:
         await run_episode(env, client, task_id)
